@@ -1,0 +1,5 @@
+#define VERSION "1.0.3"
+#define COMPILER "g++ -W -Wall -O3 -fpermissive -DNEMBEDDED -DNDEBUG -DNMETRICS -DNSTATISTICS"
+#define ID "865306fc59096bb13c2f6d1d6b9a4a309a904a32"
+#define BUILD "Sun Mar 3 19:21:00 CET 2024 Linux saouli-dell 5.14.0-1054-oem x86_64"
+#define DIR "/home/sabrine/Documents/sat_solvers/kissat-MAB-saga/kissat-MAB/kissat-1.0.3-79d8d8f2/build"
