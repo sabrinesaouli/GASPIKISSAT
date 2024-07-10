@@ -52,7 +52,7 @@ std::vector<unsigned> get_sorted_variables_by_occurrence(std::vector<unsigned> &
 	// return variables;
 
 	size_t total_vars = vars_occ_cnt.size();
-	size_t num_vars_to_keep = total_vars * 0.5;
+	size_t num_vars_to_keep = total_vars * 0.3;
 	if (num_vars_to_keep == 0)
 		num_vars_to_keep = 1; // Ensure at least one variable is kept
 
@@ -441,7 +441,7 @@ parse_dimacs(kissat *solver, strictness strict,
 			assert(sign == 1 || sign == -1);
 			assert(idx != INT_MIN);
 			lit = sign * idx;
-			std::cout << "lit: " << lit << std::endl;
+			// std::cout << "lit: " << lit << std::endl;
 			vars_occ_cnt[ABS(lit) - 1]++;
 		}
 		else
