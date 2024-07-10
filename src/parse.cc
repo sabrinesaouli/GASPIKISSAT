@@ -82,13 +82,13 @@ std::vector<unsigned> get_sorted_variables_by_occurrence(std::vector<unsigned> &
 		min_heap.pop();
 	}
 
-	// Print  variables for debugging purposes (optional)
-	std::cout << "Variables to keep: " << std::endl;
-	for (auto &var : variables_to_keep)
-	{
+	// // Print  variables for debugging purposes (optional)
+	// std::cout << "Variables to keep: " << std::endl;
+	// for (auto &var : variables_to_keep)
+	// {
 
-		std::cout << var << std::endl;
-	}
+	// 	std::cout << var << std::endl;
+	// }
 
 	return variables_to_keep;
 }
