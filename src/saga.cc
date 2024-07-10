@@ -23,21 +23,23 @@ void GeneticAlgorithm::initialize_population(std::mt19937 rng)
 
     int nclauses = formula_.getNumClauses();
     int nvars = formula_.getNumVariables();
+    population_.resize(population_size_);
     for (std::size_t i = 0; i < population_size_; i++)
     {
         // Create a new solution with random values in its vector
-        Solution sol(nvars + 1, nclauses);
-        assert(sol.getSolution().size() == nvars + 1);
-        assert(formula_.fix.size() == nvars + 1);
-        assert(formula_.fixed_vars.size() == nvars + 1);
-        for (std::size_t j = 1; j <= nvars; ++j)
+        Solution sol(nvars, nclauses);
+        assert(sol.getSolution().size() == nvars);
+        assert(formula_.fix.size() == nvars);
+        assert(formula_.fixed_vars.size() == nvars);
+        for (std::size_t j = 0; j < nvars; ++j)
         {
             if (formula_.fix[j])
                 sol[j] = formula_.fixed_vars[j] ? 1 : 0;
             else
                 sol[j] = dist(rng); // generate a random bit using the distribution and the generator
         }
-        population_.push_back(sol); // Add the solution to the population
+        // population_.push_back(sol); // Add the solution to the population
+        population_[i] = std::move(sol);
     }
 }
 
@@ -140,40 +142,37 @@ int GeneticAlgorithm::fitness_unsat(Solution &solution)
     if (memo.contains(solution.getSolution()))
     {
         // std::cout << "memo hit" << std::endl;
-        int fit = memo.get(solution.getSolution()).get_value_or(formula_.getNumClauses());
-        return fit;
+        return memo.get(solution.getSolution()).get_value_or(formula_.getNumClauses());
     }
-    else
+
+    assert(SIZE_STACK(solver->original) > 0);
+    const int *begin = BEGIN_STACK(solver->original);
+    const int *end = END_STACK(solver->original), *q;
+
+    size_t fitness = 0;
+    // std::vector<unsigned> unsat_vars;
+
+    for (const int *p = begin; p != end; p = q + 1)
     {
-        assert(SIZE_STACK(solver->original) > 0);
-        const int *begin = BEGIN_STACK(solver->original);
-        const int *end = END_STACK(solver->original), *q;
-
-        size_t fitness = 0;
-        // std::vector<unsigned> unsat_vars;
-
-        for (const int *p = begin; p != end; p = q + 1)
+        bool satisfied = false;
+        int lit;
+        for (q = p; (lit = *q); q++)
         {
-            bool satisfied = false;
-            int lit;
-            for (q = p; (lit = *q); q++)
+            if (!satisfied && solution[ABS(lit) - 1] == SIGN(lit))
             {
-                if (!satisfied && solution[ABS(lit)] == SIGN(lit))
-                {
-                    satisfied = true;
-                }
-            }
-
-            if (!satisfied)
-            {
-                fitness++;
-                // add all unsat variables to the solution
+                satisfied = true;
             }
         }
 
-        memo.insert(solution.getSolution(), fitness);
-        return fitness;
+        if (!satisfied)
+        {
+            fitness++;
+            // add all unsat variables to the solution
+        }
     }
+
+    memo.insert(solution.getSolution(), fitness);
+    return fitness;
 }
 
 // int GeneticAlgorithm::fitness(Solution &solution)
@@ -236,7 +235,7 @@ void GeneticAlgorithm::evaluate_fitness()
 {
     for (std::size_t i = 0; i < population_size_; ++i)
     {
-        assert(population_[i].size() == formula_.getNumVariables() + 1);
+        assert(population_[i].size() == formula_.getNumVariables());
         assert(i < population_.getPopulation().size());
         // Evaluate the fitness of each solution using the fitness function
         // std::cout << "fitness = " << population_.population[i].fitness << std::endl;
@@ -257,101 +256,88 @@ void GeneticAlgorithm::evaluate_fitness(std::vector<Solution> &offspring)
     }
 }
 
+// // Select parents using tournament selection
+// std::vector<Solution> GeneticAlgorithm::select_parents_tournament(int n, std::mt19937 rng)
+// {
+//     // Create a vector to store the selected parents
+//     std::vector<Solution> parents;
+//     parents.reserve(n);
+//     // Create a uniform distribution for integers in [0, population_size_ - 1]
+//     std::uniform_int_distribution<int> dist(0, population_size_ - 1);
+
+//     for (std::size_t i = 0; i < n; ++i)
+//     {
+//         // Select two random solutions from the population as candidates for reproduction
+//         int index1 = dist(rng);
+//         int index2 = dist(rng);
+//         Solution &candidate1 = population_[index1];
+//         Solution &candidate2 = population_[index2];
+
+//         // Compare their fitness and select the fitter one as a parent
+//         if (candidate1.getFitness() < candidate2.getFitness())
+//         {
+//             parents.push_back(std::move(candidate1));
+//         }
+//         else
+//         {
+//             parents.push_back(std::move(candidate2));
+//         }
+//     }
+
+//     return parents;
+// }
+
 // Select parents using tournament selection
-std::vector<Solution> GeneticAlgorithm::select_parents_tournament(std::mt19937 rng)
+std::pair<Solution, Solution> GeneticAlgorithm::select_parents_tournament(int n, std::mt19937 rng)
 {
-    // Create a vector to store the selected parents
-    std::vector<Solution> parents;
-    parents.reserve(population_size_ / 2);
     // Create a uniform distribution for integers in [0, population_size_ - 1]
     std::uniform_int_distribution<int> dist(0, population_size_ - 1);
+    Solution parent1, parent2;
 
-    for (std::size_t i = 0; i < (population_size_ / 2); ++i)
-    {
-        // Select two random solutions from the population as candidates for reproduction
-        int index1 = dist(rng);
-        int index2 = dist(rng);
-        Solution &candidate1 = population_[index1];
-        Solution &candidate2 = population_[index2];
+    // Select three random solutions from the population as candidates for reproduction
+    Solution &candidate1 = population_[dist(rng)];
+    Solution &candidate2 = population_[dist(rng)];
+    Solution &candidate3 = population_[dist(rng)];
 
-        // Compare their fitness and select the fitter one as a parent
-        if (candidate1.getFitness() < candidate2.getFitness())
-        {
-            parents.push_back(std::move(candidate1));
-        }
-        else
-        {
-            parents.push_back(std::move(candidate2));
-        }
-    }
+    // Compare their fitness and select the fitter one as a parent
+    parent1 = std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2;
+    parent1 = std::max(parent1.getFitness(), candidate3.getFitness()) == parent1.getFitness() ? parent1 : candidate3;
 
-    return parents;
+    // Select three random solutions from the population as candidates for reproduction
+    candidate1 = population_[dist(rng)];
+    candidate2 = population_[dist(rng)];
+    candidate3 = population_[dist(rng)];
+
+    // Compare their fitness and select the fitter one as a parent
+    parent2 = std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2;
+    parent2 = std::max(parent2.getFitness(), candidate3.getFitness()) == parent2.getFitness() ? parent2 : candidate3;
+
+    return std::make_pair(parent1, parent2);
 }
 
-std::vector<Solution> GeneticAlgorithm::select_parents_random(std::mt19937 rng)
+//
+std::vector<Solution> GeneticAlgorithm::select_parents_random(int n, std::mt19937 rng)
 {
     std::vector<Solution> parents;
-    parents.reserve(population_size_ / 2);
+    parents.reserve(n);
     // Create a uniform distribution for integers in [0, population_size_ - 1]
     std::uniform_int_distribution<int> dist(0, population_size_ - 1);
-    for (int i = 0; i < (population_size_ / 2); ++i)
+    while (parents.size() < n)
     {
         int index = dist(rng);
-        parents.push_back(std::move(population_[index]));
+        if (std::find(parents.begin(), parents.end(), population_[index]) == parents.end())
+        {
+            parents.push_back(std::move(population_[index]));
+        }
     }
     return parents;
 }
 
-// void GeneticAlgorithm::mutate_unsat(Solution &solution, std::mt19937 rng)
+// void GeneticAlgorithm::mutate_degree_vars(Solution &solution, std::mt19937 rng)
 // {
 //     // Create a uniform distribution for floats in [0.0, 1.0]
 //     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-//     if (solution.no_unsatisfying_variables())
-//     {
-//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-//         for (auto &var : centrality_vars)
-//         {
-
-//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-//             {
-//                 solution[var] = 1 - solution[var];
-//             }
-//         }
-//     }
-//     else
-//     {
-
-//         std::vector<unsigned> unsat_vars = solution.get_unsatisfying_variables();
-//         for (auto &var : unsat_vars)
-//         {
-//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-//             {
-//                 solution[var] = 1 - solution[var];
-//             }
-//         }
-//     }
-// }
-void GeneticAlgorithm::mutate_degree_vars(Solution &solution, std::mt19937 rng)
-{
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-    std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-    for (auto &var : centrality_vars)
-    {
-
-        if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-        {
-            solution[var] = 1 - solution[var];
-        }
-    }
-}
-
-// void GeneticAlgorithm::mutate(Solution &solution, std::mt19937 rng)
-// {
-//     // Create a uniform distribution for floats in [0.0, 1.0]
-//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 //     std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
 //     for (auto &var : centrality_vars)
 //     {
@@ -362,6 +348,113 @@ void GeneticAlgorithm::mutate_degree_vars(Solution &solution, std::mt19937 rng)
 //         }
 //     }
 // }
+
+// Mutate the solution using the mutation rate
+void mutation(Solution &solution, float mutation_rate, std::mt19937 rng)
+{
+    // Create a uniform distribution for floats in [0.0, 1.0]
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+    for (auto &var : centrality_vars)
+    {
+
+        // Perform mutation with a given probability
+        if (dist(rng) < mutation_rate && !formula_.fix[var])
+        {
+            // Flip the bit at the current index
+            solution[var] = 1 - solution[var];
+        }
+    }
+}
+
+// Voting crossover
+std::vector<Solution> GeneticAlgorithm::voting_crossover(int n, std::mt19937 rng)
+{
+
+    std::vector<Solution> offsprings;
+    offsprings.reserve(population_.size() / 2);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    // Create a uniform distribution for floats in [0.0, 1.0]
+    std::uniform_int_distribution<int> dist2(0, 1);
+
+    for (int i = 0; i < population_.size() / 2; i++)
+    {
+        if (dist(rng) < crossover_rate_)
+        {
+            std::vector<Solution> parents = select_parents_random(n, rng);
+
+            Solution child(parents[0]);
+            for (std::size_t j = 0; j < parents[0].size(); j++)
+            {
+
+                if (!formula_.fix[j])
+                {
+                    int sum = 0;
+                    for (int k = 0; k < n; k++)
+                    {
+                        sum += parents[k][j];
+                    }
+
+                    if (sum > n / 2)
+                    {
+                        child[j] = 1;
+                    }
+                    else if (sum < n / 2)
+                    {
+                        child[j] = 0;
+                    }
+                    else
+                    {
+                        child[j] = dist2(rng);
+                    }
+                }
+            }
+
+            mutation(child, mutation_rate_, rng);
+            offsprings.push_back(std::move(child));
+        }
+    }
+    return offsprings;
+}
+
+// Uniform crossover
+std::vector<Solution> GeneticAlgorithm::uniform_crossover(std::mt19937 rng)
+{
+    std::vector<Solution> offsprings;
+    offsprings.reserve(population_.size() / 2);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    // Create a uniform distribution for floats in [0.0, 1.0]
+    std::uniform_int_distribution<int> dist2(0, 1);
+    for (int i = 0; i < population_.size() / 4; i++)
+    {
+        if (dist(rng) < crossover_rate_)
+        {
+            std::pair<Solution, Solution> parents = select_parents_tournament(3, rng);
+
+            Solution child1(parents.first);
+            Solution child2(parents.second);
+
+            for (std::size_t j = 0; j < parents.first.size(); j++)
+            {
+                if (!formula_.fix[j])
+                {
+                    if (dist2(rng) == 0)
+                    {
+                        child1[j] = parents.second[j];
+                        child2[j] = parents.first[j];
+                    }
+                }
+            }
+
+            offsprings.push_back(std::move(child1));
+            offsprings.push_back(std::move(child2));
+        }
+    }
+    return offsprings;
+}
 
 // Create offspring through crossover and mutation
 std::vector<Solution> GeneticAlgorithm::create_offspring(const std::vector<Solution> &parents, std::mt19937 rng)
@@ -460,7 +553,7 @@ std::vector<Solution> GeneticAlgorithm::create_offspring(std::mt19937 rng)
             int point = dist2(rng);
             // std::cout << "point: " << point << std::endl;
 
-            for (int j = 1; j <= point; ++j)
+            for (int j = 0; j <= point; ++j)
             {
                 if (!formula_.fix[j])
                 {
@@ -584,7 +677,7 @@ std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(std::mt19937
             {
                 std::swap(point1, point2);
             }
-            for (int j = 1; j <= point1; ++j)
+            for (int j = 0; j <= point1; ++j)
             {
                 if (!formula_.fix[j])
                 {
@@ -722,7 +815,7 @@ std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(const std::v
             {
                 std::swap(point1, point2);
             }
-            for (int j = 1; j <= point1; ++j)
+            for (int j = 0; j <= point1; ++j)
             {
                 if (!formula_.fix[j])
                 {
@@ -871,7 +964,7 @@ std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(const std:
                 std::swap(point1, point2);
             }
 
-            for (int j = 1; j <= point1; ++j)
+            for (int j = 0; j <= point1; ++j)
             {
                 if (!formula_.fix[j])
                 {
@@ -1006,7 +1099,7 @@ std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(std::mt199
                 std::swap(point1, point2);
             }
 
-            for (int j = 1; j <= point1; ++j)
+            for (int j = 0; j <= point1; ++j)
             {
                 if (!formula_.fix[j])
                 {
@@ -1292,9 +1385,9 @@ Solution &GeneticAlgorithm::getWorstSolution()
 void initialize_polarity(Solution &solution, kissat *solver)
 {
     int num_vars = VARS;
-    for (int i = 1; i <= num_vars; ++i)
+    for (int i = 0; i < num_vars; ++i)
     {
         value v = BOOL_TO_VALUE(solution[i]);
-        setPolarity(solver, i, v);
+        setPolarity(solver, i + 1, v);
     }
 }

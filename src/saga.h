@@ -16,6 +16,7 @@
 #include <boost/compute/detail/lru_cache.hpp>
 // #include "internal.h"
 #include "kissat.h"
+#include "colors.h"
 
 class Formula
 {
@@ -23,8 +24,8 @@ public:
     Formula() = default;
     Formula(int numVariables, int numClauses)
         : numVariables(numVariables), numClauses(numClauses),
-          fix(numVariables + 1, 0),
-          fixed_vars(numVariables + 1, 0)
+          fix(numVariables, 0),
+          fixed_vars(numVariables, 0)
     {
     }
 
@@ -72,8 +73,8 @@ public:
     {
         this->numVariables = numVariables;
         // this->var_lit_count.resize(numVariables + 1);
-        this->fix.resize(numVariables + 1);
-        this->fixed_vars.resize(numVariables + 1);
+        this->fix.resize(numVariables);
+        this->fixed_vars.resize(numVariables);
     }
 
     void setNumClauses(int numClauses)
@@ -119,10 +120,14 @@ private:
 class Solution
 {
 public:
-    Solution(const Solution &other) : solution(other.solution), fitness(other.fitness) //, unsatisfying_variables(other.unsatisfying_variables)
+    Solution(const Solution &other) : solution(other.solution), fitness(other.fitness), mutation_rate(other.mutation_rate), crossover_rate(other.crossover_rate) //, unsatisfying_variables(other.unsatisfying_variables)
     {
     }
-    Solution(std::vector<unsigned> solution_, int fitness_) : solution(solution_), fitness(fitness_) //, unsatisfying_variables()
+
+    // Solution(const Solution &other) = default;
+    // Solution(Solution &&other) noexcept = default;
+
+    Solution(std::vector<unsigned> solution_, int fitness_, float pm, float pc) : solution(solution_), fitness(fitness_), mutation_rate(pm), crossover_rate(pc) //, unsatisfying_variables()
     {
     }
     Solution(size_t solution_size, int nclauses)
@@ -131,22 +136,25 @@ public:
         solution.reserve(solution_size);
     }
 
-    Solution() : solution(), fitness(1000000) {}
+    Solution() : solution(), fitness(100000000000) {}
 
     ~Solution() {}
 
-    // Operators overloading
-    Solution &operator=(const Solution &other)
-    {
-        if (this != &other)
-        {
-            solution = other.solution;
-            fitness = other.fitness;
-            // unsatisfying_variables = other.unsatisfying_variables;
-        }
+    // // Operators overloading
+    // Solution &operator=(const Solution &other)
+    // {
+    //     if (this != &other)
+    //     {
+    //         solution = other.solution;
+    //         fitness = other.fitness;
+    //         // unsatisfying_variables = other.unsatisfying_variables;
+    //     }
 
-        return *this;
-    }
+    //     return *this;
+    // }
+
+    Solution &operator=(const Solution &other) = default;
+    Solution &operator=(Solution &&other) noexcept = default;
 
     bool operator==(const Solution &s) const
     {
@@ -167,7 +175,7 @@ public:
     std::string toString() const
     {
         std::ostringstream oss;
-        for (int i = 1; i < size(); ++i)
+        for (int i = 0; i < size(); ++i)
             oss << (solution[i] ? "" : "-") << i << " ";
         oss << std::endl;
         return oss.str();
@@ -176,13 +184,19 @@ public:
     void setRandomSolution(std::mt19937 &rng)
     {
         std::uniform_int_distribution<int> dist(0, 1);
-        for (std::size_t i = 1; i < solution.size(); ++i)
+        for (std::size_t i = 0; i < solution.size(); ++i)
         {
             solution[i] = dist(rng);
         }
     }
 
     // Getters and setters
+    float getMutationRate() const { return mutation_rate; }
+    void setMutationRate(float mutation_rate_) { mutation_rate = mutation_rate_; }
+
+    float getCrossoverRate() const { return crossover_rate; }
+    void setCrossoverRate(float crossover_rate_) { crossover_rate = crossover_rate_; }
+
     int getFitness() const { return fitness; }
     void setFitness(int fitness_) { fitness = fitness_; }
     std::size_t size() const { return solution.size(); }
@@ -234,6 +248,8 @@ private:
     std::vector<unsigned> solution;
     // std::vector<unsigned> unsatisfying_variables; // Vector that maps unsatisfying variables to the number of clauses they do not satisfy
     int fitness;
+    float mutation_rate;
+    float crossover_rate;
 };
 
 class Population
@@ -244,6 +260,9 @@ public:
         population.reserve(population_size_);
     }
     Population(const Population &other) : population(other.population), population_size(other.population_size) {}
+    // Population(const Population &other) = default;
+    // Population(Population &&other) noexcept = default;
+
     Population(int population_size_, int solution_size, int nclauses)
         : population(population_size_), population_size(population_size_)
     {
@@ -255,17 +274,20 @@ public:
     }
     ~Population() {}
 
-    // Operators overloading
-    Population &operator=(const Population &other)
-    {
-        if (this != &other)
-        {
-            population = other.population;
-            population_size = other.population_size;
-        }
+    // // Operators overloading
+    // Population &operator=(const Population &other)
+    // {
+    //     if (this != &other)
+    //     {
+    //         population = other.population;
+    //         population_size = other.population_size;
+    //     }
 
-        return *this;
-    }
+    //     return *this;
+    // }
+
+    Population &operator=(const Population &other) = default;
+    Population &operator=(Population &&other) noexcept = default;
 
     bool operator==(const Population &p) const
     {
@@ -350,7 +372,7 @@ public:
     GeneticAlgorithm(int population_size, int solution_size, int max_iterations, float mutation_rate,
                      float crossover_rate, Formula &formula, kissat *solver)
         : population_size_(population_size),
-          solution_size_(solution_size + 1),
+          solution_size_(solution_size),
           max_iterations_(max_iterations),
           mutation_rate_(mutation_rate),
           crossover_rate_(crossover_rate),
@@ -392,32 +414,79 @@ public:
 
         evaluate_fitness();
 
+        int best_fitness = population_[0].getFitness();
+        int no_improvement_count = 0;
+        const int max_no_improvement_iterations = 100; // You can adjust this threshold
+
+        // Initial mutation and crossover rates
+        // float initial_mutation_rate = mutation_rate_;
+        // float initial_crossover_rate = crossover_rate_;
+
+        // Adaptation parameters
+        // const float adaptation_factor = 0.01f;
+        // const float min_rate = 0.1f;
+        // const float max_rate = 0.95f;
+
         for (int iteration = 0; iteration < max_iterations_; ++iteration)
         {
-            std::vector<Solution> parents = select_parents_tournament(rng);
+            // std::vector<Solution> parents = select_parents_tournament(3, rng);
 
-            std::vector<Solution> offspring = create_offspring(parents, rng);
+            // std::vector<Solution> offspring = create_offspring(parents, rng);
+
+            // std::vector<Solution> offspring = uniform_crossover(rng);
+            std::vector<Solution> offspring = voting_crossover(4, rng);
 
             evaluate_fitness(offspring);
             select_survivors_ellitist(offspring);
 
             // Clear the parents and offspring vectors
-            parents.clear();
+            // parents.clear();
             offspring.clear();
-            parents.shrink_to_fit();
+            // parents.shrink_to_fit();
             offspring.shrink_to_fit();
 
             // Check if a solution has been found
             if (solution_found())
                 break;
 
-            // if (iteration % 10 == 0)
-            // {
-            //     std::cout << "c |  Iteration " << iteration << std::endl
-            //               << "c |  Best fitness: " << population_[0].getFitness() << std::endl
-            //               << "c |  Worst fitness: " << population_.getPopulation().back().getFitness() << std::endl;
-            //     std::cout << "c |  \t ==================================== " << std::endl;
-            // }
+            int current_best_fitness = population_[0].getFitness();
+
+            if (iteration % 10 == 0)
+            {
+                std::cout << "c |  Iteration " << iteration << std::endl
+                          << "c |  mutation rate: " << mutation_rate_ << std::endl
+                          << "c |  crossover rate: " << crossover_rate_ << std::endl
+                          << "c |  Best fitness: " << current_best_fitness << "==>" << 100 - (current_best_fitness * 100 / formula_.getNumClauses()) << " \%" << std::endl
+                          << "c |  Worst fitness: " << population_.getPopulation().back().getFitness() << "==>" << 100 - (population_.getPopulation().back().getFitness() * 100 / formula_.getNumClauses()) << " \%" << std::endl;
+                std::cout << "c |  \t ==================================== " << std::endl;
+            }
+
+            // Check for improvement
+
+            if (current_best_fitness < best_fitness)
+            {
+                best_fitness = current_best_fitness;
+                no_improvement_count = 0; // Reset the no improvement count
+
+                // Decrease mutation and crossover rates
+                // mutation_rate_ = std::max(mutation_rate_ - adaptation_factor * mutation_rate_, min_rate);
+                // crossover_rate_ = std::max(crossover_rate_ - adaptation_factor * crossover_rate_, min_rate);
+            }
+            else
+            {
+                no_improvement_count++;
+
+                // Increase mutation and crossover rates
+                // mutation_rate_ = std::min(mutation_rate_ + adaptation_factor * mutation_rate_, max_rate);
+                // crossover_rate_ = std::min(crossover_rate_ + adaptation_factor * crossover_rate_, max_rate);
+            }
+            // Stop if no improvement for a certain number of iterations
+            if (no_improvement_count >= max_no_improvement_iterations)
+            {
+
+                std::cout << "c |  Stopping early due to no improvement in fitness for " << max_no_improvement_iterations << " iterations." << std::endl;
+                break;
+            }
         }
 
         return population_[0];
@@ -425,6 +494,7 @@ public:
 
     Solution &getBestSolution();
     Solution &getWorstSolution();
+    Formula formula_;
 
 private:
     boost::compute::detail::lru_cache<std::vector<unsigned>, int> memo{500}; // cache memory to store the results of previous calls to fitness_unsat
@@ -434,7 +504,7 @@ private:
     float mutation_rate_;
     float crossover_rate_;
     Population population_;
-    Formula formula_;
+
     kissat *solver;
 
     void initialize_population(std::mt19937 rng);
@@ -449,11 +519,14 @@ private:
     std::vector<Solution> create_offspring(std::mt19937 rng);
     void mutate_unsat(Solution &solution, std::mt19937 rng);
     void mutate_degree_vars(Solution &solution, std::mt19937 rng);
-    std::vector<Solution> select_parents_tournament(std::mt19937 rng);
-    std::vector<Solution> select_parents_random(std::mt19937 rng);
+    std::pair<Solution, Solution> select_parents_tournament(int n, std::mt19937 rng);
+    std::vector<Solution> select_parents_random(int n, std::mt19937 rng);
     std::vector<Solution> create_offspring(const std::vector<Solution> &parents, std::mt19937 rng);
     std::vector<Solution> create_offspring_two_points(const std::vector<Solution> &parents, std::mt19937 rng);
     std::vector<Solution> create_offspring_three_points(const std::vector<Solution> &parents, std::mt19937 rng);
+
+    std::vector<Solution> uniform_crossover(std::mt19937 rng);
+    std::vector<Solution> voting_crossover(int n, std::mt19937 rng);
     void select_survivors(const std::vector<Solution> &offspring);
     void select_survivors_ellitist(const std::vector<Solution> &offspring);
     bool solution_found();

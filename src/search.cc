@@ -185,6 +185,7 @@ int kissat_saga_initialization(kissat *solver)
   Solution sol = solver->ga->solve();
   kissat_section(solver, "Genetic Algorithm Initialization");
   std::cout << "c  Best fitness: " << sol.getFitness() << "\n";
+  std::cout << "c  \% of satisfied clauses: " << 100 - (sol.getFitness() * 100 / solver->ga->formula_.getNumClauses()) << " \%\n";
   initialize_polarity(sol, solver);
   if (sol.getFitness() == 0)
   {

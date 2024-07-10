@@ -401,8 +401,8 @@ void kissat_add(kissat *solver, int elit)
           LOGUNARY(unit, "found original");
 
         kissat_assign_unit(solver, unit);
-        solver->formula.fixed_vars[abs(elit)] = (elit > 0 ? true : false);
-        solver->formula.fix[abs(elit)] = true;
+        solver->formula.fixed_vars[abs(elit) - 1] = (elit > 0 ? true : false);
+        solver->formula.fix[abs(elit) - 1] = true;
 
         if (!solver->level)
         {
