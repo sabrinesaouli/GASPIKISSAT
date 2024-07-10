@@ -524,7 +524,7 @@ private:
     std::vector<Solution> create_offspring(const std::vector<Solution> &parents, std::mt19937 rng);
     std::vector<Solution> create_offspring_two_points(const std::vector<Solution> &parents, std::mt19937 rng);
     std::vector<Solution> create_offspring_three_points(const std::vector<Solution> &parents, std::mt19937 rng);
-
+    void mutation(Solution &solution, float mutation_rate, std::mt19937 rng);
     std::vector<Solution> uniform_crossover(std::mt19937 rng);
     std::vector<Solution> voting_crossover(int n, std::mt19937 rng);
     void select_survivors(const std::vector<Solution> &offspring);

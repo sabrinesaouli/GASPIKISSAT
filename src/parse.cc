@@ -8,6 +8,7 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <queue>
 
 static int
 next(file *file, uint64_t *lineno_ptr)
@@ -36,18 +37,60 @@ nonl(int ch, const char *str, uint64_t *lineno_ptr)
 
 std::vector<unsigned> get_sorted_variables_by_occurrence(std::vector<unsigned> &vars_occ_cnt)
 {
-	// Create a vector of variables
-	size_t num_vars_to_keep = vars_occ_cnt.size() * 0.1;
-	std::vector<unsigned> variables(vars_occ_cnt.size());
-	for (int i = 0; i < variables.size(); ++i)
-		variables[i] = i;
+	// // Create a vector of variables
+	// size_t num_vars_to_keep = vars_occ_cnt.size() * 0.1;
+	// std::vector<unsigned> variables(vars_occ_cnt.size());
+	// for (int i = 0; i < variables.size(); ++i)
+	// 	variables[i] = i;
 
-	// Sort the variables based on the number of clauses they appear in
-	std::sort(variables.begin(), variables.end(), [&vars_occ_cnt](int a, int b)
-			  { return vars_occ_cnt[a] > vars_occ_cnt[b]; });
+	// // Sort the variables based on the number of clauses they appear in
+	// std::sort(vars_occ_cnt.begin(), variables.end(), [&vars_occ_cnt](int a, int b)
+	// 		  { return vars_occ_cnt[a] > vars_occ_cnt[b]; });
 
-	std::vector<unsigned> variables_to_keep(variables.begin(), variables.begin() + num_vars_to_keep);
-	return variables;
+	// std::vector<unsigned> variables_to_keep(variables.begin(), variables.begin() + num_vars_to_keep);
+	// // std::cout << "first variable: " << variables[0] << std::endl;
+	// return variables;
+
+	size_t total_vars = vars_occ_cnt.size();
+	size_t num_vars_to_keep = total_vars * 0.5;
+	if (num_vars_to_keep == 0)
+		num_vars_to_keep = 1; // Ensure at least one variable is kept
+
+	// Min-heap to keep the top `num_vars_to_keep` variables
+	auto comp = [&vars_occ_cnt](unsigned a, unsigned b)
+	{ return vars_occ_cnt[a] > vars_occ_cnt[b]; };
+	std::priority_queue<unsigned, std::vector<unsigned>, decltype(comp)> min_heap(comp);
+
+	for (unsigned i = 0; i < total_vars; ++i)
+	{
+		if (min_heap.size() < num_vars_to_keep)
+		{
+			min_heap.push(i);
+		}
+		else if (vars_occ_cnt[i] > vars_occ_cnt[min_heap.top()])
+		{
+			min_heap.pop();
+			min_heap.push(i);
+		}
+	}
+
+	// Extract the variables from the min-heap
+	std::vector<unsigned> variables_to_keep;
+	while (!min_heap.empty())
+	{
+		variables_to_keep.push_back(min_heap.top());
+		min_heap.pop();
+	}
+
+	// Print  variables for debugging purposes (optional)
+	std::cout << "Variables to keep: " << std::endl;
+	for (auto &var : variables_to_keep)
+	{
+
+		std::cout << var << std::endl;
+	}
+
+	return variables_to_keep;
 }
 
 //=================================================================================================
@@ -398,6 +441,8 @@ parse_dimacs(kissat *solver, strictness strict,
 			assert(sign == 1 || sign == -1);
 			assert(idx != INT_MIN);
 			lit = sign * idx;
+			std::cout << "lit: " << lit << std::endl;
+			vars_occ_cnt[ABS(lit) - 1]++;
 		}
 		else
 		{

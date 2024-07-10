@@ -350,7 +350,7 @@ std::vector<Solution> GeneticAlgorithm::select_parents_random(int n, std::mt1993
 // }
 
 // Mutate the solution using the mutation rate
-void mutation(Solution &solution, float mutation_rate, std::mt19937 rng)
+void GeneticAlgorithm::mutation(Solution &solution, float mutation_rate, std::mt19937 rng)
 {
     // Create a uniform distribution for floats in [0.0, 1.0]
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
