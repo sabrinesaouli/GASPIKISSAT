@@ -174,13 +174,17 @@ int kissat_saga_initialization(kissat *solver)
   solver->ga = static_cast<GeneticAlgorithm *>(::operator new(sizeof(GeneticAlgorithm)));
 
   // Construct the GeneticAlgorithm object at the allocated memory location.
-  new (solver->ga) GeneticAlgorithm(solver->population_size, VARS, solver->max_generations, solver->mutation_rate, solver->crossover_rate, solver->formula, solver);
-  std::cout << "pop = " << solver->population_size;
-  std::cout << " \tgen = " << solver->max_generations;
+  new (solver->ga) GeneticAlgorithm(solver->population_size, VARS, solver->max_generations, solver->formula, solver);
+  // std::cout << "pop = " << solver->population_size;
+  // std::cout << " \tgen = " << solver->max_generations;
 
-  std::cout << " \tmut = " << solver->mutation_rate;
+  // std::cout << " \tmut = " << solver->mutation_rate;
 
-  std::cout << " \tcross = " << solver->crossover_rate << std::endl;
+  // std::cout << " \tcross = " << solver->crossover_rate << std::endl;
+  std::cout << "c | Population size       = " << solver->population_size << std::endl;
+  std::cout << "c | Number of generations = " << solver->max_generations << std::endl;
+  std::cout << "c | Mutation probability  = " << solver->mutation_rate << std::endl;
+  std::cout << "c | Crossover probability = " << solver->crossover_rate << std::endl;
 
   Solution sol = solver->ga->solve();
   kissat_section(solver, "Genetic Algorithm Initialization");

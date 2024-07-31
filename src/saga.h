@@ -140,21 +140,23 @@ public:
 
     ~Solution() {}
 
-    // // Operators overloading
-    // Solution &operator=(const Solution &other)
-    // {
-    //     if (this != &other)
-    //     {
-    //         solution = other.solution;
-    //         fitness = other.fitness;
-    //         // unsatisfying_variables = other.unsatisfying_variables;
-    //     }
+    // Operators overloading
+    Solution &operator=(const Solution &other)
+    {
+        if (this != &other)
+        {
+            solution = other.solution;
+            fitness = other.fitness;
+            mutation_rate = other.mutation_rate;
+            crossover_rate = other.crossover_rate;
+            // unsatisfying_variables = other.unsatisfying_variables;
+        }
 
-    //     return *this;
-    // }
+        return *this;
+    }
 
-    Solution &operator=(const Solution &other) = default;
-    Solution &operator=(Solution &&other) noexcept = default;
+    // Solution &operator=(const Solution &other) = default;
+    // Solution &operator=(Solution &&other) noexcept = default;
 
     bool operator==(const Solution &s) const
     {
@@ -275,19 +277,19 @@ public:
     ~Population() {}
 
     // // Operators overloading
-    // Population &operator=(const Population &other)
-    // {
-    //     if (this != &other)
-    //     {
-    //         population = other.population;
-    //         population_size = other.population_size;
-    //     }
+    Population &operator=(const Population &other)
+    {
+        if (this != &other)
+        {
+            population = other.population;
+            population_size = other.population_size;
+        }
 
-    //     return *this;
-    // }
+        return *this;
+    }
 
-    Population &operator=(const Population &other) = default;
-    Population &operator=(Population &&other) noexcept = default;
+    // Population &operator=(const Population &other) = default;
+    // Population &operator=(Population &&other) noexcept = default;
 
     bool operator==(const Population &p) const
     {
@@ -369,13 +371,12 @@ public:
     //     // formula_ = solver->formula;
     // }
 
-    GeneticAlgorithm(int population_size, int solution_size, int max_iterations, float mutation_rate,
-                     float crossover_rate, Formula &formula, kissat *solver)
+    GeneticAlgorithm(int population_size, int solution_size, int max_iterations, Formula &formula, kissat *solver)
         : population_size_(population_size),
           solution_size_(solution_size),
           max_iterations_(max_iterations),
-          mutation_rate_(mutation_rate),
-          crossover_rate_(crossover_rate),
+          // mutation_rate_(mutation_rate),
+          // crossover_rate_(crossover_rate),
           population_(population_size_),
           formula_(formula),
           solver(solver) // Initialize the 'solver' member using the member initializer list
@@ -392,8 +393,8 @@ public:
             population_size_ = other.population_size_;
             solution_size_ = other.solution_size_;
             max_iterations_ = other.max_iterations_;
-            mutation_rate_ = other.mutation_rate_;
-            crossover_rate_ = other.crossover_rate_;
+            // mutation_rate_ = other.mutation_rate_;
+            // crossover_rate_ = other.crossover_rate_;
             population_ = other.population_;
             formula_ = other.formula_;
             solver = other.solver;
@@ -409,8 +410,11 @@ public:
         // Create a random number generator with a fixed seed for reproducibility
         std::random_device rd;
         std::mt19937 rng(rd());
-        // std::cout << "c |  Initializing the population ..." << std::endl;
-        initialize_population(rng);
+        adapt_initialize_population(rng);
+        std::cout << "c |  Initializing the population of size ..." << population_.size() << std::endl;
+        std::cout << "c | population_size_ = " << population_size_ << std::endl;
+        std::cout << "c | Number of clauses = " << formula_.getNumClauses() << std::endl;
+        std::cout << "c | Number of variables = " << formula_.getNumVariables() << std::endl;
 
         evaluate_fitness();
 
@@ -434,7 +438,7 @@ public:
             // std::vector<Solution> offspring = create_offspring(parents, rng);
 
             // std::vector<Solution> offspring = uniform_crossover(rng);
-            std::vector<Solution> offspring = voting_crossover(4, rng);
+            std::vector<Solution> offspring = adapt_voting_crossover_mean(4, rng);
 
             evaluate_fitness(offspring);
             select_survivors_ellitist(offspring);
@@ -454,10 +458,10 @@ public:
             if (iteration % 10 == 0)
             {
                 std::cout << "c |  Iteration " << iteration << std::endl
-                          << "c |  mutation rate: " << mutation_rate_ << std::endl
-                          << "c |  crossover rate: " << crossover_rate_ << std::endl
-                          << "c |  Best fitness: " << current_best_fitness << "==>" << 100 - (current_best_fitness * 100 / formula_.getNumClauses()) << " \%" << std::endl
-                          << "c |  Worst fitness: " << population_.getPopulation().back().getFitness() << "==>" << 100 - (population_.getPopulation().back().getFitness() * 100 / formula_.getNumClauses()) << " \%" << std::endl;
+                          //<< "c |  mutation rate: " << mutation_rate_ << std::endl
+                          //<< "c |  crossover rate: " << crossover_rate_ << std::endl
+                          << "c |  Best fitness: " << current_best_fitness << "==>" << 100 - (float)(current_best_fitness * 100.0 / (formula_.getNumClauses() * 1.0)) << " \%" << std::endl
+                          << "c |  Worst fitness: " << population_.getPopulation().back().getFitness() << "==>" << 100 - (float)(population_.getPopulation().back().getFitness() * 100.0 / formula_.getNumClauses() * 1.0) << " \%" << std::endl;
                 std::cout << "c |  \t ==================================== " << std::endl;
             }
 
@@ -501,8 +505,8 @@ private:
     size_t population_size_;
     size_t solution_size_;
     int max_iterations_;
-    float mutation_rate_;
-    float crossover_rate_;
+    float pm_max = 0;
+    float pc_max = 0;
     Population population_;
 
     kissat *solver;
@@ -530,6 +534,10 @@ private:
     void select_survivors(const std::vector<Solution> &offspring);
     void select_survivors_ellitist(const std::vector<Solution> &offspring);
     bool solution_found();
+
+    void adapt_initialize_population(std::mt19937 rng);
+    std::vector<Solution> adapt_voting_crossover_mean(int n, std::mt19937 rng);
+    float compute_adaptive_mutation_rate(int fitness, float best_fitness);
 };
 
 void initialize_polarity(Solution &solution, kissat *solver);

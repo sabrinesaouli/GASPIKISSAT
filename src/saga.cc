@@ -38,8 +38,55 @@ void GeneticAlgorithm::initialize_population(std::mt19937 rng)
             else
                 sol[j] = dist(rng); // generate a random bit using the distribution and the generator
         }
-        // population_.push_back(sol); // Add the solution to the population
+        population_.push_back(std::move(sol)); // Add the solution to the population
+        // population_[i] = std::move(sol);
+    }
+}
+
+// Adaptive GASPI initialization
+// Initialize the population with random solutions
+void GeneticAlgorithm::adapt_initialize_population(std::mt19937 rng)
+{
+
+    // Create a uniform distribution for integers in [0, 1]
+    std::uniform_int_distribution<int> dist(0, 1);
+    std::uniform_real_distribution<float> rates(0.3f, 1.0f);
+
+    int nclauses = formula_.getNumClauses();
+    int nvars = formula_.getNumVariables();
+    population_.resize(population_size_);
+    // std::cout << "nvars = " << nvars << std::endl;
+    // std::cout << "nclauses = " << nclauses << std::endl;
+    for (std::size_t i = 0; i < population_size_; i++)
+    {
+        float pm = rates(rng);
+        if (pm > pm_max)
+            pm_max = pm;
+
+        float pc = rates(rng);
+        if (pc > pc_max)
+            pc_max = pc;
+        // Create a new solution with random values in its vector
+        Solution sol(nvars, nclauses);
+
+        assert(sol.getSolution().size() == nvars);
+        assert(formula_.fix.size() == nvars);
+        assert(formula_.fixed_vars.size() == nvars);
+        sol.setMutationRate(pm);
+        sol.setCrossoverRate(pc);
+        for (std::size_t j = 0; j < nvars; ++j)
+        {
+            if (formula_.fix[j])
+                sol[j] = formula_.fixed_vars[j] ? 1 : 0;
+            else
+                sol[j] = dist(rng); // generate a random bit using the distribution and the generator
+        }
+
+        // Random mutation and crossover rates
+        // sol.setMutationRate(rates(rng));
+        // sol.setCrossoverRate(rates(rng));
         population_[i] = std::move(sol);
+        // population_.push_back(std::move(sol)); // Add the solution to the population
     }
 }
 
@@ -235,6 +282,8 @@ void GeneticAlgorithm::evaluate_fitness()
 {
     for (std::size_t i = 0; i < population_size_; ++i)
     {
+        // std::cout << "population[" << i << "] size = " << population_[i].size() << std::endl;
+        // std::cout << "Number of variables" << formula_.getNumVariables() << std::endl;
         assert(population_[i].size() == formula_.getNumVariables());
         assert(i < population_.getPopulation().size());
         // Evaluate the fitness of each solution using the fitness function
@@ -295,22 +344,46 @@ std::pair<Solution, Solution> GeneticAlgorithm::select_parents_tournament(int n,
     Solution parent1, parent2;
 
     // Select three random solutions from the population as candidates for reproduction
-    Solution &candidate1 = population_[dist(rng)];
-    Solution &candidate2 = population_[dist(rng)];
-    Solution &candidate3 = population_[dist(rng)];
+    int idx = dist(rng);
+    Solution &candidate1(population_[idx]);
+    int idx2 = dist(rng);
+    while (idx == idx2)
+    {
+        idx2 = dist(rng);
+    }
+    Solution &candidate2(population_[idx2]);
+    int idx3 = dist(rng);
+    while (idx == idx3 || idx2 == idx3)
+    {
+        idx3 = dist(rng);
+    }
+
+    Solution &candidate3(population_[dist(rng)]);
 
     // Compare their fitness and select the fitter one as a parent
-    parent1 = std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2;
-    parent1 = std::max(parent1.getFitness(), candidate3.getFitness()) == parent1.getFitness() ? parent1 : candidate3;
+    parent1 = std::move(std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2);
+    parent1 = std::move(std::max(parent1.getFitness(), candidate3.getFitness()) == parent1.getFitness() ? parent1 : candidate3);
 
     // Select three random solutions from the population as candidates for reproduction
-    candidate1 = population_[dist(rng)];
-    candidate2 = population_[dist(rng)];
+    idx = dist(rng);
+    candidate1 = population_[idx];
+    idx2 = dist(rng);
+    while (idx == idx2)
+    {
+        idx2 = dist(rng);
+    }
+    candidate2 = population_[idx2];
+    idx3 = dist(rng);
+    while (idx == idx3 || idx2 == idx3)
+    {
+        idx3 = dist(rng);
+    }
+
     candidate3 = population_[dist(rng)];
 
     // Compare their fitness and select the fitter one as a parent
-    parent2 = std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2;
-    parent2 = std::max(parent2.getFitness(), candidate3.getFitness()) == parent2.getFitness() ? parent2 : candidate3;
+    parent2 = std::move(std::max(candidate1.getFitness(), candidate2.getFitness()) == candidate1.getFitness() ? candidate1 : candidate2);
+    parent2 = std::move(std::max(parent2.getFitness(), candidate3.getFitness()) == parent2.getFitness() ? parent2 : candidate3);
 
     return std::make_pair(parent1, parent2);
 }
@@ -322,12 +395,16 @@ std::vector<Solution> GeneticAlgorithm::select_parents_random(int n, std::mt1993
     parents.reserve(n);
     // Create a uniform distribution for integers in [0, population_size_ - 1]
     std::uniform_int_distribution<int> dist(0, population_size_ - 1);
+    // int i = 0;
     while (parents.size() < n)
     {
+        // std::cout << "Parents size = " << parents.size() << std::endl;
         int index = dist(rng);
+        // std::cout << "index " << i << " : " << index << std::endl;
         if (std::find(parents.begin(), parents.end(), population_[index]) == parents.end())
         {
             parents.push_back(std::move(population_[index]));
+            // i++;
         }
     }
     return parents;
@@ -368,24 +445,101 @@ void GeneticAlgorithm::mutation(Solution &solution, float mutation_rate, std::mt
     }
 }
 
-// Voting crossover
-std::vector<Solution> GeneticAlgorithm::voting_crossover(int n, std::mt19937 rng)
+// // Voting crossover
+// std::vector<Solution> GeneticAlgorithm::voting_crossover(int n, std::mt19937 rng)
+// {
+
+//     std::vector<Solution> offspring;
+//     offspring.reserve(population_.size() / 2);
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_int_distribution<int> dist2(0, 1);
+
+//     for (int i = 0; i < population_.size() / 2; i++)
+//     {
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             std::vector<Solution> parents = select_parents_random(n, rng);
+
+//             Solution child(parents[0]);
+//             for (std::size_t j = 0; j < parents[0].size(); j++)
+//             {
+
+//                 if (!formula_.fix[j])
+//                 {
+//                     int sum = 0;
+//                     for (int k = 0; k < n; k++)
+//                     {
+//                         sum += parents[k][j];
+//                     }
+
+//                     if (sum > n / 2)
+//                     {
+//                         child[j] = 1;
+//                     }
+//                     else if (sum < n / 2)
+//                     {
+//                         child[j] = 0;
+//                     }
+//                     else
+//                     {
+//                         child[j] = dist2(rng);
+//                     }
+//                 }
+//             }
+
+//             mutation(child, mutation_rate_, rng);
+//             offspring.push_back(std::move(child));
+//         }
+//     }
+//     return offspring;
+// }
+
+float GeneticAlgorithm::compute_adaptive_mutation_rate(int fitness, float best_fitness)
+{
+    float pm = pm_max * (1 - (float)fitness / best_fitness);
+    if (pm > pm_max)
+        pm_max = pm;
+    return pm;
+}
+
+// Voting crossover for adaptive-GASPI
+std::vector<Solution> GeneticAlgorithm::adapt_voting_crossover_mean(int n, std::mt19937 rng)
 {
 
-    std::vector<Solution> offsprings;
-    offsprings.reserve(population_.size() / 2);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    std::vector<Solution> offspring;
+    offspring.reserve(population_.size() / 2);
 
     // Create a uniform distribution for floats in [0.0, 1.0]
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    // std::uniform_real_distribution<float> fact(0.01f, 0.5f);
+
     std::uniform_int_distribution<int> dist2(0, 1);
+    // std::cout << "offspring size = " << offsprings.size() << std::endl;
 
-    for (int i = 0; i < population_.size() / 2; i++)
+    while (offspring.size() < population_.size() / 2)
     {
-        if (dist(rng) < crossover_rate_)
-        {
-            std::vector<Solution> parents = select_parents_random(n, rng);
+        float pm = 0.0;
+        float pc = 0.0;
+        // std::cout << "offspring size = " << offspring.size() << std::endl;
 
+        std::vector<Solution> parents = select_parents_random(n, rng);
+        for (int i = 0; i < n; i++)
+        {
+            pm += parents[i].getMutationRate();
+            pc += parents[i].getCrossoverRate();
+        }
+        pm = pm / n;
+        // std::cout << "pm = " << pm << std::endl;
+        pc = pc / n;
+        // std::cout << "pc = " << pc << std::endl;
+        if (dist(rng) < pc)
+        {
             Solution child(parents[0]);
+            // child.setMutationRate(pm);
+            child.setCrossoverRate(pc);
+
             for (std::size_t j = 0; j < parents[0].size(); j++)
             {
 
@@ -411,112 +565,115 @@ std::vector<Solution> GeneticAlgorithm::voting_crossover(int n, std::mt19937 rng
                     }
                 }
             }
-
-            mutation(child, mutation_rate_, rng);
-            offsprings.push_back(std::move(child));
+            child.setFitness(fitness_unsat(child));
+            pm = compute_adaptive_mutation_rate(child.getFitness(), population_[0].getFitness());
+            child.setMutationRate(pm);
+            mutation(child, pm, rng);
+            offspring.push_back(std::move(child));
         }
-    }
-    return offsprings;
-}
-
-// Uniform crossover
-std::vector<Solution> GeneticAlgorithm::uniform_crossover(std::mt19937 rng)
-{
-    std::vector<Solution> offsprings;
-    offsprings.reserve(population_.size() / 2);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_int_distribution<int> dist2(0, 1);
-    for (int i = 0; i < population_.size() / 4; i++)
-    {
-        if (dist(rng) < crossover_rate_)
-        {
-            std::pair<Solution, Solution> parents = select_parents_tournament(3, rng);
-
-            Solution child1(parents.first);
-            Solution child2(parents.second);
-
-            for (std::size_t j = 0; j < parents.first.size(); j++)
-            {
-                if (!formula_.fix[j])
-                {
-                    if (dist2(rng) == 0)
-                    {
-                        child1[j] = parents.second[j];
-                        child2[j] = parents.first[j];
-                    }
-                }
-            }
-
-            offsprings.push_back(std::move(child1));
-            offsprings.push_back(std::move(child2));
-        }
-    }
-    return offsprings;
-}
-
-// Create offspring through crossover and mutation
-std::vector<Solution> GeneticAlgorithm::create_offspring(const std::vector<Solution> &parents, std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(parents.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-    // Create a uniform distribution for integers in [0, parents.size() - 1]
-    std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
-
-    for (std::size_t i = 0; i < parents.size() - 1; i += 2)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = parents[i];
-        Solution parent2 = parents[i + 1];
-        // Solution parent1 = parents[dist3(rng)];
-        // Solution parent2 = parents[dist3(rng)];
-
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point = dist2(rng);
-            // std::cout << "point: " << point << std::endl;
-
-            for (int j = 1; j <= point; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
     }
 
     return offspring;
 }
+
+// // Uniform crossover
+// std::vector<Solution> GeneticAlgorithm::uniform_crossover(std::mt19937 rng)
+// {
+//     std::vector<Solution> offsprings;
+//     offsprings.reserve(population_.size() / 2);
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_int_distribution<int> dist2(0, 1);
+//     for (int i = 0; i < population_.size() / 4; i++)
+//     {
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             std::pair<Solution, Solution> parents = select_parents_tournament(3, rng);
+
+//             Solution child1(parents.first);
+//             Solution child2(parents.second);
+
+//             for (std::size_t j = 0; j < parents.first.size(); j++)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     if (dist2(rng) == 0)
+//                     {
+//                         child1[j] = parents.second[j];
+//                         child2[j] = parents.first[j];
+//                     }
+//                 }
+//             }
+
+//             offsprings.push_back(std::move(child1));
+//             offsprings.push_back(std::move(child2));
+//         }
+//     }
+//     return offsprings;
+// }
+
+// // Create offspring through crossover and mutation
+// std::vector<Solution> GeneticAlgorithm::create_offspring(const std::vector<Solution> &parents, std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(parents.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+//     // Create a uniform distribution for integers in [0, parents.size() - 1]
+//     std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
+
+//     for (std::size_t i = 0; i < parents.size() - 1; i += 2)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = parents[i];
+//         Solution parent2 = parents[i + 1];
+//         // Solution parent1 = parents[dist3(rng)];
+//         // Solution parent2 = parents[dist3(rng)];
+
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point = dist2(rng);
+//             // std::cout << "point: " << point << std::endl;
+
+//             for (int j = 1; j <= point; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+
+//     return offspring;
+// }
 
 Solution GeneticAlgorithm::select_parent(std::mt19937 rng)
 {
@@ -526,680 +683,680 @@ Solution GeneticAlgorithm::select_parent(std::mt19937 rng)
     return population_[index];
 }
 
-std::vector<Solution> GeneticAlgorithm::create_offspring(std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(population_.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-
-    for (std::size_t i = 0; i < population_.size() / 2; i += 2)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = select_parent(rng);
-        Solution parent2 = select_parent(rng);
-
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point = dist2(rng);
-            // std::cout << "point: " << point << std::endl;
-
-            for (int j = 0; j <= point; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        // // Evaluate the fitness of the offspring
-        // child1.setFitness(fitness(child1));
-        // child2.setFitness(fitness(child2));
-
-        // // Perform mutation with a given probability
-        // if (child1.no_unsatisfying_variables())
-        // {
-        //     int mut_var = dist2(rng);
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
-        //     assert(!child1.no_unsatisfying_variables());
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child1[unsat_var] = 1 - child1[unsat_var];
-        //             break;
-        //         }
-        //     }
-        //     // int mut_var = child1.getRandomUnsatisfyingVariable();
-        //     // // std::cout << "mut_var: " << mut_var << std::endl;
-        //     // assert(!formula_.fix[mut_var]);
-        //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        // }
-
-        // if (child2.no_unsatisfying_variables())
-        // {
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         int mut_var = dist2(rng);
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     assert(!child2.no_unsatisfying_variables());
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child2[unsat_var] = 1 - child2[unsat_var];
-        //         }
-        //     }
-        // }
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
-    }
-
-    return offspring;
-}
-
-std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(population_.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-
-    for (size_t i = 0; i < population_.size() / 2; i++)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = select_parent(rng);
-        Solution parent2 = select_parent(rng);
-
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point1 = dist2(rng);
-            int point2 = dist2(rng);
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-            for (int j = 0; j <= point1; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-            for (int j = point2; j < solution_size_; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        // Evaluate the fitness of the offspring
-
-        // child1.setFitness(fitness(child1));
-        // child2.setFitness(fitness(child2));
-
-        // // Perform mutation with a given probability
-        // if (child1.no_unsatisfying_variables())
-        // {
-        //     int mut_var = dist2(rng);
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
-        //     assert(!child1.no_unsatisfying_variables());
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child1[unsat_var] = 1 - child1[unsat_var];
-        //             break;
-        //         }
-        //     }
-        //     // int mut_var = child1.getRandomUnsatisfyingVariable();
-        //     // // std::cout << "mut_var: " << mut_var << std::endl;
-        //     // assert(!formula_.fix[mut_var]);
-        //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        // }
-
-        // if (child2.no_unsatisfying_variables())
-        // {
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         int mut_var = dist2(rng);
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     assert(!child2.no_unsatisfying_variables());
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child2[unsat_var] = 1 - child2[unsat_var];
-        //         }
-        //     }
-        // }
-
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
-    }
-    return offspring;
-}
-
-// Create offspring through two points crossover and mutation
-std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(const std::vector<Solution> &parents, std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(parents.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-    // Create a uniform distribution for integers in [0, parents.size() - 1]
-    std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
-
-    for (std::size_t i = 0; i < parents.size() - 1; i += 2)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = parents[i];
-        Solution parent2 = parents[i + 1];
-        // Solution parent1 = parents[dist3(rng)];
-        // Solution parent2 = parents[dist3(rng)];
-
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point1 = dist2(rng);
-            int point2 = dist2(rng);
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-            for (int j = 0; j <= point1; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-            for (int j = point2; j < solution_size_; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        // // Evaluate the fitness of the offspring
-        // child1.setFitness(fitness(child1));
-        // child2.setFitness(fitness(child2));
-
-        // // Perform mutation with a given probability
-        // if (child1.no_unsatisfying_variables())
-        // {
-        //     int mut_var = dist2(rng);
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
-        //     assert(!child1.no_unsatisfying_variables());
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child1[unsat_var] = 1 - child1[unsat_var];
-        //             break;
-        //         }
-        //     }
-        //     // int mut_var = child1.getRandomUnsatisfyingVariable();
-        //     // // std::cout << "mut_var: " << mut_var << std::endl;
-        //     // assert(!formula_.fix[mut_var]);
-        //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        // }
-
-        // if (child2.no_unsatisfying_variables())
-        // {
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         int mut_var = dist2(rng);
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     assert(!child2.no_unsatisfying_variables());
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child2[unsat_var] = 1 - child2[unsat_var];
-        //         }
-        //     }
-        // }
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
-    }
-
-    return offspring;
-}
-
-// Create offspring through three points crossover and mutation
-std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(const std::vector<Solution> &parents, std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(parents.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-    // Create a uniform distribution for integers in [0, parents.size() - 1]
-    std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
-
-    for (std::size_t i = 0; i < parents.size() - 1; i += 2)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = parents[i];
-        Solution parent2 = parents[i + 1];
-        // Solution parent1 = parents[dist3(rng)];
-        // Solution parent2 = parents[dist3(rng)];
-
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point1 = dist2(rng);
-            int point2 = dist2(rng);
-            int point3 = dist2(rng);
-
-            // sort the points
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-            if (point2 > point3)
-            {
-                std::swap(point2, point3);
-            }
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-
-            for (int j = 0; j <= point1; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-            for (int j = point2; j <= point3; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        // Evaluate the fitness of the offspring
-        // child1.setFitness(fitness(child1));
-        // child2.setFitness(fitness(child2));
-
-        // Perform mutation with a given probability
-        // if (child1.no_unsatisfying_variables())
-        // {
-        //     int mut_var = dist2(rng);
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        // std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
-        // assert(!child1.no_unsatisfying_variables());
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-        // int mut_var = child1.getRandomUnsatisfyingVariable();
-        // // std::cout << "mut_var: " << mut_var << std::endl;
-        // assert(!formula_.fix[mut_var]);
-        // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        // }
-
-        // if (child2.no_unsatisfying_variables())
-        // {
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         int mut_var = dist2(rng);
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        // assert(!child2.no_unsatisfying_variables());
-
-        // std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child2[unsat_var] = 1 - child2[unsat_var];
-        //         }
-        //     }
-        // }
-        // std::vector<int> centrality_vars = formula_.get_degree_centrality_variables();
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
-    }
-
-    return offspring;
-}
-
-// Create offspring through three points crossover and mutation
-std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(std::mt19937 rng)
-{
-    // Create a vector to store the offspring solutions
-    std::vector<Solution> offspring;
-    offspring.reserve(population_.size());
-
-    // Create a uniform distribution for floats in [0.0, 1.0]
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    // Create a uniform distribution for integers in [1, solution_size_ - 2]
-    std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
-
-    for (std::size_t i = 0; i < population_.size() / 2; i += 2)
-    {
-        // Select two parents from the vector using their index
-        Solution parent1 = select_parent(rng);
-        Solution parent2 = select_parent(rng);
-        Solution child1(parent1);
-        Solution child2(parent2);
-
-        // Perform crossover with a given probability
-        if (dist(rng) < crossover_rate_)
-        {
-            // Select a random point to split the solution vector
-            int point1 = dist2(rng);
-            int point2 = dist2(rng);
-            int point3 = dist2(rng);
-
-            // sort the points
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-            if (point2 > point3)
-            {
-                std::swap(point2, point3);
-            }
-            if (point1 > point2)
-            {
-                std::swap(point1, point2);
-            }
-
-            for (int j = 0; j <= point1; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-            for (int j = point2; j <= point3; ++j)
-            {
-                if (!formula_.fix[j])
-                {
-                    child1[j] = parent2[j];
-                    child2[j] = parent1[j];
-                }
-            }
-        }
-
-        // Evaluate the fitness of the offspring
-        // child1.setFitness(fitness(child1));
-        // child2.setFitness(fitness(child2));
-
-        // // Perform mutation with a given probability
-        // if (child1.no_unsatisfying_variables())
-        // {
-        //     int mut_var = dist2(rng);
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
-        //     assert(!child1.no_unsatisfying_variables());
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child1[unsat_var] = 1 - child1[unsat_var];
-        //             break;
-        //         }
-        //     }
-        //     // int mut_var = child1.getRandomUnsatisfyingVariable();
-        //     // // std::cout << "mut_var: " << mut_var << std::endl;
-        //     // assert(!formula_.fix[mut_var]);
-        //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
-        // }
-
-        // if (child2.no_unsatisfying_variables())
-        // {
-        //     if (dist(rng) < mutation_rate_)
-        //     {
-        //         int mut_var = dist2(rng);
-        //         if (!formula_.fix[mut_var])
-        //         {
-        //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
-        //         }
-        //     }
-        // }
-        // else
-        // {
-
-        //     assert(!child2.no_unsatisfying_variables());
-
-        //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
-        //     for (auto &var : unsat_vars)
-        //     {
-        //         int unsat_var = var.first;
-        //         assert(!formula_.fix[unsat_var]);
-        //         if (dist(rng) < mutation_rate_)
-        //         {
-        //             child2[unsat_var] = 1 - child2[unsat_var];
-        //         }
-        //     }
-        // }
-        std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
-        for (auto &var : centrality_vars)
-        {
-            // int unsat_var = var.first;
-            // assert(!formula_.fix[var]);
-            if (dist(rng) < mutation_rate_ && !formula_.fix[var])
-            {
-                child1[var] = 1 - child1[var];
-                child2[var] = 1 - child1[var];
-            }
-        }
-
-        // Add the offspring to the vector
-        offspring.push_back(std::move(child1));
-        offspring.push_back(std::move(child2));
-    }
-
-    return offspring;
-}
+// std::vector<Solution> GeneticAlgorithm::create_offspring(std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(population_.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+
+//     for (std::size_t i = 0; i < population_.size() / 2; i += 2)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = select_parent(rng);
+//         Solution parent2 = select_parent(rng);
+
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point = dist2(rng);
+//             // std::cout << "point: " << point << std::endl;
+
+//             for (int j = 0; j <= point; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         // // Evaluate the fitness of the offspring
+//         // child1.setFitness(fitness(child1));
+//         // child2.setFitness(fitness(child2));
+
+//         // // Perform mutation with a given probability
+//         // if (child1.no_unsatisfying_variables())
+//         // {
+//         //     int mut_var = dist2(rng);
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
+//         //     assert(!child1.no_unsatisfying_variables());
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child1[unsat_var] = 1 - child1[unsat_var];
+//         //             break;
+//         //         }
+//         //     }
+//         //     // int mut_var = child1.getRandomUnsatisfyingVariable();
+//         //     // // std::cout << "mut_var: " << mut_var << std::endl;
+//         //     // assert(!formula_.fix[mut_var]);
+//         //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         // }
+
+//         // if (child2.no_unsatisfying_variables())
+//         // {
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         int mut_var = dist2(rng);
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     assert(!child2.no_unsatisfying_variables());
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child2[unsat_var] = 1 - child2[unsat_var];
+//         //         }
+//         //     }
+//         // }
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+
+//     return offspring;
+// }
+
+// std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(population_.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+
+//     for (size_t i = 0; i < population_.size() / 2; i++)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = select_parent(rng);
+//         Solution parent2 = select_parent(rng);
+
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point1 = dist2(rng);
+//             int point2 = dist2(rng);
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+//             for (int j = 0; j <= point1; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//             for (int j = point2; j < solution_size_; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         // Evaluate the fitness of the offspring
+
+//         // child1.setFitness(fitness(child1));
+//         // child2.setFitness(fitness(child2));
+
+//         // // Perform mutation with a given probability
+//         // if (child1.no_unsatisfying_variables())
+//         // {
+//         //     int mut_var = dist2(rng);
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
+//         //     assert(!child1.no_unsatisfying_variables());
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child1[unsat_var] = 1 - child1[unsat_var];
+//         //             break;
+//         //         }
+//         //     }
+//         //     // int mut_var = child1.getRandomUnsatisfyingVariable();
+//         //     // // std::cout << "mut_var: " << mut_var << std::endl;
+//         //     // assert(!formula_.fix[mut_var]);
+//         //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         // }
+
+//         // if (child2.no_unsatisfying_variables())
+//         // {
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         int mut_var = dist2(rng);
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     assert(!child2.no_unsatisfying_variables());
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child2[unsat_var] = 1 - child2[unsat_var];
+//         //         }
+//         //     }
+//         // }
+
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+//     return offspring;
+// }
+
+// // Create offspring through two points crossover and mutation
+// std::vector<Solution> GeneticAlgorithm::create_offspring_two_points(const std::vector<Solution> &parents, std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(parents.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+//     // Create a uniform distribution for integers in [0, parents.size() - 1]
+//     std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
+
+//     for (std::size_t i = 0; i < parents.size() - 1; i += 2)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = parents[i];
+//         Solution parent2 = parents[i + 1];
+//         // Solution parent1 = parents[dist3(rng)];
+//         // Solution parent2 = parents[dist3(rng)];
+
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point1 = dist2(rng);
+//             int point2 = dist2(rng);
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+//             for (int j = 0; j <= point1; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//             for (int j = point2; j < solution_size_; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         // // Evaluate the fitness of the offspring
+//         // child1.setFitness(fitness(child1));
+//         // child2.setFitness(fitness(child2));
+
+//         // // Perform mutation with a given probability
+//         // if (child1.no_unsatisfying_variables())
+//         // {
+//         //     int mut_var = dist2(rng);
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
+//         //     assert(!child1.no_unsatisfying_variables());
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child1[unsat_var] = 1 - child1[unsat_var];
+//         //             break;
+//         //         }
+//         //     }
+//         //     // int mut_var = child1.getRandomUnsatisfyingVariable();
+//         //     // // std::cout << "mut_var: " << mut_var << std::endl;
+//         //     // assert(!formula_.fix[mut_var]);
+//         //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         // }
+
+//         // if (child2.no_unsatisfying_variables())
+//         // {
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         int mut_var = dist2(rng);
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     assert(!child2.no_unsatisfying_variables());
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child2[unsat_var] = 1 - child2[unsat_var];
+//         //         }
+//         //     }
+//         // }
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+
+//     return offspring;
+// }
+
+// // Create offspring through three points crossover and mutation
+// std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(const std::vector<Solution> &parents, std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(parents.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+//     // Create a uniform distribution for integers in [0, parents.size() - 1]
+//     std::uniform_int_distribution<int> dist3(0, parents.size() - 1);
+
+//     for (std::size_t i = 0; i < parents.size() - 1; i += 2)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = parents[i];
+//         Solution parent2 = parents[i + 1];
+//         // Solution parent1 = parents[dist3(rng)];
+//         // Solution parent2 = parents[dist3(rng)];
+
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point1 = dist2(rng);
+//             int point2 = dist2(rng);
+//             int point3 = dist2(rng);
+
+//             // sort the points
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+//             if (point2 > point3)
+//             {
+//                 std::swap(point2, point3);
+//             }
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+
+//             for (int j = 0; j <= point1; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//             for (int j = point2; j <= point3; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         // Evaluate the fitness of the offspring
+//         // child1.setFitness(fitness(child1));
+//         // child2.setFitness(fitness(child2));
+
+//         // Perform mutation with a given probability
+//         // if (child1.no_unsatisfying_variables())
+//         // {
+//         //     int mut_var = dist2(rng);
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         // std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
+//         // assert(!child1.no_unsatisfying_variables());
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+//         // int mut_var = child1.getRandomUnsatisfyingVariable();
+//         // // std::cout << "mut_var: " << mut_var << std::endl;
+//         // assert(!formula_.fix[mut_var]);
+//         // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         // }
+
+//         // if (child2.no_unsatisfying_variables())
+//         // {
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         int mut_var = dist2(rng);
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         // assert(!child2.no_unsatisfying_variables());
+
+//         // std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child2[unsat_var] = 1 - child2[unsat_var];
+//         //         }
+//         //     }
+//         // }
+//         // std::vector<int> centrality_vars = formula_.get_degree_centrality_variables();
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+
+//     return offspring;
+// }
+
+// // Create offspring through three points crossover and mutation
+// std::vector<Solution> GeneticAlgorithm::create_offspring_three_points(std::mt19937 rng)
+// {
+//     // Create a vector to store the offspring solutions
+//     std::vector<Solution> offspring;
+//     offspring.reserve(population_.size());
+
+//     // Create a uniform distribution for floats in [0.0, 1.0]
+//     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+//     // Create a uniform distribution for integers in [1, solution_size_ - 2]
+//     std::uniform_int_distribution<int> dist2(1, solution_size_ - 2);
+
+//     for (std::size_t i = 0; i < population_.size() / 2; i += 2)
+//     {
+//         // Select two parents from the vector using their index
+//         Solution parent1 = select_parent(rng);
+//         Solution parent2 = select_parent(rng);
+//         Solution child1(parent1);
+//         Solution child2(parent2);
+
+//         // Perform crossover with a given probability
+//         if (dist(rng) < crossover_rate_)
+//         {
+//             // Select a random point to split the solution vector
+//             int point1 = dist2(rng);
+//             int point2 = dist2(rng);
+//             int point3 = dist2(rng);
+
+//             // sort the points
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+//             if (point2 > point3)
+//             {
+//                 std::swap(point2, point3);
+//             }
+//             if (point1 > point2)
+//             {
+//                 std::swap(point1, point2);
+//             }
+
+//             for (int j = 0; j <= point1; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//             for (int j = point2; j <= point3; ++j)
+//             {
+//                 if (!formula_.fix[j])
+//                 {
+//                     child1[j] = parent2[j];
+//                     child2[j] = parent1[j];
+//                 }
+//             }
+//         }
+
+//         // Evaluate the fitness of the offspring
+//         // child1.setFitness(fitness(child1));
+//         // child2.setFitness(fitness(child2));
+
+//         // // Perform mutation with a given probability
+//         // if (child1.no_unsatisfying_variables())
+//         // {
+//         //     int mut_var = dist2(rng);
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child1.get_unsatisfying_variables();
+//         //     assert(!child1.no_unsatisfying_variables());
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child1[unsat_var] = 1 - child1[unsat_var];
+//         //             break;
+//         //         }
+//         //     }
+//         //     // int mut_var = child1.getRandomUnsatisfyingVariable();
+//         //     // // std::cout << "mut_var: " << mut_var << std::endl;
+//         //     // assert(!formula_.fix[mut_var]);
+//         //     // child1[mut_var] = 1 - child1[mut_var]; // flip the bit
+//         // }
+
+//         // if (child2.no_unsatisfying_variables())
+//         // {
+//         //     if (dist(rng) < mutation_rate_)
+//         //     {
+//         //         int mut_var = dist2(rng);
+//         //         if (!formula_.fix[mut_var])
+//         //         {
+//         //             child2[mut_var] = 1 - child2[mut_var]; // flip the bit
+//         //         }
+//         //     }
+//         // }
+//         // else
+//         // {
+
+//         //     assert(!child2.no_unsatisfying_variables());
+
+//         //     std::vector<std::pair<int, int>> unsat_vars = child2.get_unsatisfying_variables();
+//         //     for (auto &var : unsat_vars)
+//         //     {
+//         //         int unsat_var = var.first;
+//         //         assert(!formula_.fix[unsat_var]);
+//         //         if (dist(rng) < mutation_rate_)
+//         //         {
+//         //             child2[unsat_var] = 1 - child2[unsat_var];
+//         //         }
+//         //     }
+//         // }
+//         std::vector<unsigned> &centrality_vars = formula_.get_degree_centrality_variables();
+//         for (auto &var : centrality_vars)
+//         {
+//             // int unsat_var = var.first;
+//             // assert(!formula_.fix[var]);
+//             if (dist(rng) < mutation_rate_ && !formula_.fix[var])
+//             {
+//                 child1[var] = 1 - child1[var];
+//                 child2[var] = 1 - child1[var];
+//             }
+//         }
+
+//         // Add the offspring to the vector
+//         offspring.push_back(std::move(child1));
+//         offspring.push_back(std::move(child2));
+//     }
+
+//     return offspring;
+// }
 
 // Select the best solutions to survive to the next generation
 void GeneticAlgorithm::select_survivors(const std::vector<Solution> &offspring)
